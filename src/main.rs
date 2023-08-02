@@ -1,107 +1,92 @@
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::Value;
-use std::collections::BTreeMap as Map;
+use std::io::StdoutLock;
+use std::io::Write;
 use std::io::stdin;
+use std::io::stdout;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Message {
     src: String,
     dest: String,
-    body: MessageBody,
+    body: Body,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct MessageBody {
-    #[serde(rename = "type")]
-    ty: String,
+struct Body {
+    msg_id: Option<usize>,
+    in_reply_to: Option<usize>,
     #[serde(flatten)]
-    opt: Map<String, Value>,
+    payload: Payload,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum Payload {
+    Echo { echo: String },
+    EchoOk { echo: String },
+    Init { node_id: String, node_ids: Vec<String> },
+    InitOk { msg_id: usize },
+}
+
+struct Node {
+    id: usize,
+}
+
+impl Node {
+    pub fn new() -> Node {
+        Node { id: 1 }
+    }
+
+    pub fn handle(&mut self, input: Message, output_stream: &mut StdoutLock) {
+        match input.body.payload {
+            Payload::Echo { echo } => {
+                let output = Message {
+                    src: input.dest,
+                    dest: input.src,
+                    body: Body {
+                        msg_id: Some(self.id),
+                        in_reply_to: input.body.msg_id,
+                        payload: Payload::EchoOk { echo },
+                    }
+                };
+                serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                output_stream.write_all(b"\n").unwrap();
+            },
+            Payload::EchoOk { .. } => (),
+            Payload::Init { .. } => {
+                let output = Message {
+                    src: input.dest,
+                    dest: input.src,
+                    body: Body {
+                        msg_id: Some(self.id),
+                        in_reply_to: input.body.msg_id,
+                        payload: Payload::InitOk { msg_id: input.body.msg_id.unwrap() },
+                    }
+                };
+                serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                output_stream.write_all(b"\n").unwrap();
+            },
+            Payload::InitOk { .. } => unreachable!(),
+        }
+        self.id += 1;
+    }
 }
 
 fn main() {
-    let mut de = serde_json::Deserializer::from_reader(stdin());
+    let stdin = stdin().lock();
+    let input_stream = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
 
-    let node_id = init(&mut de);
-    dbg!(node_id);
+    let mut stdout = stdout().lock();
 
-    loop {
-        let msg = get_message(&mut de);
-        match msg {
-            Ok(msg) => {
-                eprintln!(
-                    "Received message:\n{}",
-                    serde_json::to_string(&msg).unwrap()
-                );
-                match handle_message(&msg) {
-                    Ok(_) => (),
-                    _ => break,
-                }
-            }
-            Err(_) => break,
-        }
+    let mut node = Node::new();
+    for input in input_stream {
+        let input = input.unwrap();
+        eprintln!(
+            "Received message:\n{}",
+            serde_json::to_string(&input).unwrap()
+        );
+        node.handle(input, &mut stdout);
     }
-}
-
-fn get_message(
-    de: &mut serde_json::Deserializer<serde_json::de::IoRead<std::io::Stdin>>,
-) -> Result<Message, serde_json::Error> {
-    let msg = Message::deserialize(de);
-    msg
-}
-
-fn send_message(msg: &Message) {
-    println!("{}", serde_json::to_string(&msg).unwrap());
-
-}
-
-fn init(de: &mut serde_json::Deserializer<serde_json::de::IoRead<std::io::Stdin>>) -> String {
-    let msg = get_message(de).unwrap();
-    let node_id = msg
-        .body
-        .opt
-        .get("node_id")
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_owned();
-    respond_init(&msg, node_id.clone());
-
-    node_id
-}
-
-fn handle_message(msg: &Message) -> Result<(), ()> {
-    let body = &msg.body;
-    match body.ty.as_str() {
-        "echo" => {
-            let mut body2 = body.clone();
-            body2.ty = "echo_ok".to_owned();
-            body2.opt.insert("in_reply_to".to_owned(), body2.opt.get("msg_id").unwrap().clone());
-            let msg2 = Message {
-                src: msg.dest.clone(),
-                dest: msg.src.clone(),
-                body: body2
-            };
-            send_message(&msg2);
-
-            Ok(())
-        }
-        _ => Err(()),
-    }
-}
-
-fn respond_init(msg: &Message, node_id: String) {
-    let body = MessageBody {
-        ty: "init_ok".to_owned(),
-        opt: Map::from([(
-            "in_reply_to".to_owned(),
-            Value::from(msg.body.opt.get("msg_id").unwrap().as_i64().unwrap()),
-        )]),
-    };
-    let msg2 = Message {
-        src: node_id,
-        dest: msg.src.clone(),
-        body,
-    };
-    send_message(&msg2);
 }
