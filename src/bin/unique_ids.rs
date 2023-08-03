@@ -26,7 +26,8 @@ enum Request {
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum Response {
-    GenerateOk { id: String },}
+    GenerateOk { id: String },
+}
 
 struct Echo;
 
@@ -41,13 +42,15 @@ impl NodeHandler<Payload> for Echo {
                         body: Body {
                             msg_id: Some(node.msg_id),
                             in_reply_to: input.body.msg_id,
-                            payload: Payload::Resp(Response::GenerateOk { id: format!("{}-{}", node.node_id, node.msg_id) }),
-                        }
+                            payload: Payload::Resp(Response::GenerateOk {
+                                id: format!("{}-{}", node.node_id, node.msg_id),
+                            }),
+                        },
                     };
 
                     serde_json::to_writer(&mut *output_stream, &output).unwrap();
-                    output_stream.write_all(b"\n").unwrap(); 
-                },
+                    output_stream.write_all(b"\n").unwrap();
+                }
             },
             Payload::Resp(_) => panic!(),
         }
