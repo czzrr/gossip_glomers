@@ -1,5 +1,8 @@
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::StreamDeserializer;
+use serde_json::de::IoRead;
+use std::io::StdinLock;
 use std::io::StdoutLock;
 use std::io::Write;
 use std::io::stdin;
@@ -53,8 +56,28 @@ struct Node {
 }
 
 impl Node {
-    pub fn new() -> Node {
-        Node { node_id: 0, msg_id: 1, unique_id: 0, node_ids: Vec::new() }
+    pub fn new<'de>(input_stream: &mut StreamDeserializer<'_, IoRead<StdinLock>, Message>, output_stream: &mut StdoutLock) -> Node {
+        for input in input_stream {
+            let input = input.unwrap();
+            if let Payload::Req(Request::Init { node_id, node_ids }) = input.body.payload {
+                let output = Message {
+                    src: input.dest,
+                    dest: input.src,
+                    body: Body {
+                        msg_id: Some(1),
+                        in_reply_to: input.body.msg_id,
+                        payload: Payload::Resp(Response::InitOk { msg_id: input.body.msg_id.unwrap() }),
+                    }
+                };
+
+                serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                output_stream.write_all(b"\n").unwrap();
+
+                let node_id = node_id[1..].parse().unwrap();
+                return Node { node_id, msg_id: 2, unique_id: node_id, node_ids };
+            }
+        }
+        panic!()
     }
 
     pub fn handle(&mut self, input: Message, output_stream: &mut StdoutLock) {
@@ -74,24 +97,6 @@ impl Node {
                         serde_json::to_writer(&mut *output_stream, &output).unwrap();
                         output_stream.write_all(b"\n").unwrap();
                     },
-                    Request::Init { node_id, node_ids } => {
-                        let output = Message {
-                            src: input.dest,
-                            dest: input.src,
-                            body: Body {
-                                msg_id: Some(self.msg_id),
-                                in_reply_to: input.body.msg_id,
-                                payload: Payload::Resp(Response::InitOk { msg_id: input.body.msg_id.unwrap() }),
-                            }
-                        };
-
-                        self.node_id = node_id[1..].parse().unwrap();
-                        self.unique_id = self.node_id;
-                        self.node_ids = node_ids;
-
-                        serde_json::to_writer(&mut *output_stream, &output).unwrap();
-                        output_stream.write_all(b"\n").unwrap();
-                    },
                     Request::Generate => {
                         let output = Message {
                             src: input.dest,
@@ -108,9 +113,10 @@ impl Node {
                         serde_json::to_writer(&mut *output_stream, &output).unwrap();
                         output_stream.write_all(b"\n").unwrap(); 
                     },
+                    _ => panic!(),
                 }
             },
-            Payload::Resp(_) => (),
+            Payload::Resp(_) => panic!(),
         }
         self.msg_id += 1;
     }
@@ -118,11 +124,11 @@ impl Node {
 
 fn main() {
     let stdin = stdin().lock();
-    let input_stream = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
+    let mut input_stream = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
 
     let mut stdout = stdout().lock();
 
-    let mut node = Node::new();
+    let mut node = Node::new(&mut input_stream, &mut stdout);
     for input in input_stream {
         let input = input.unwrap();
         eprintln!(
