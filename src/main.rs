@@ -33,6 +33,7 @@ enum Payload {
 enum Request {
     Echo { echo: String },
     Init { node_id: String, node_ids: Vec<String> },
+    Generate,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -41,15 +42,19 @@ enum Request {
 enum Response {
     EchoOk { echo: String },
     InitOk { msg_id: usize },
+    GenerateOk { id: usize },
 }
 
 struct Node {
-    id: usize,
+    node_id: usize,
+    msg_id: usize,
+    unique_id: usize,
+    node_ids: Vec<String>,
 }
 
 impl Node {
     pub fn new() -> Node {
-        Node { id: 1 }
+        Node { node_id: 0, msg_id: 1, unique_id: 0, node_ids: Vec::new() }
     }
 
     pub fn handle(&mut self, input: Message, output_stream: &mut StdoutLock) {
@@ -61,7 +66,7 @@ impl Node {
                             src: input.dest,
                             dest: input.src,
                             body: Body {
-                                msg_id: Some(self.id),
+                                msg_id: Some(self.msg_id),
                                 in_reply_to: input.body.msg_id,
                                 payload: Payload::Resp(Response::EchoOk { echo }),
                             }
@@ -69,24 +74,45 @@ impl Node {
                         serde_json::to_writer(&mut *output_stream, &output).unwrap();
                         output_stream.write_all(b"\n").unwrap();
                     },
-                    Request::Init { .. } => {
+                    Request::Init { node_id, node_ids } => {
                         let output = Message {
                             src: input.dest,
                             dest: input.src,
                             body: Body {
-                                msg_id: Some(self.id),
+                                msg_id: Some(self.msg_id),
                                 in_reply_to: input.body.msg_id,
                                 payload: Payload::Resp(Response::InitOk { msg_id: input.body.msg_id.unwrap() }),
                             }
                         };
+
+                        self.node_id = node_id[1..].parse().unwrap();
+                        self.unique_id = self.node_id;
+                        self.node_ids = node_ids;
+
                         serde_json::to_writer(&mut *output_stream, &output).unwrap();
                         output_stream.write_all(b"\n").unwrap();
+                    },
+                    Request::Generate => {
+                        let output = Message {
+                            src: input.dest,
+                            dest: input.src,
+                            body: Body {
+                                msg_id: Some(self.msg_id),
+                                in_reply_to: input.body.msg_id,
+                                payload: Payload::Resp(Response::GenerateOk { id: self.unique_id }),
+                            }
+                        };
+
+                        self.unique_id += self.node_ids.len();
+
+                        serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                        output_stream.write_all(b"\n").unwrap(); 
                     },
                 }
             },
             Payload::Resp(_) => (),
         }
-        self.id += 1;
+        self.msg_id += 1;
     }
 }
 
