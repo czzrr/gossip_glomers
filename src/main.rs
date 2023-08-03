@@ -19,14 +19,27 @@ struct Body {
     #[serde(flatten)]
     payload: Payload,
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum Payload {
+    Req(Request),
+    Resp(Response),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-enum Payload {
+enum Request {
     Echo { echo: String },
-    EchoOk { echo: String },
     Init { node_id: String, node_ids: Vec<String> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum Response {
+    EchoOk { echo: String },
     InitOk { msg_id: usize },
 }
 
@@ -41,34 +54,37 @@ impl Node {
 
     pub fn handle(&mut self, input: Message, output_stream: &mut StdoutLock) {
         match input.body.payload {
-            Payload::Echo { echo } => {
-                let output = Message {
-                    src: input.dest,
-                    dest: input.src,
-                    body: Body {
-                        msg_id: Some(self.id),
-                        in_reply_to: input.body.msg_id,
-                        payload: Payload::EchoOk { echo },
-                    }
-                };
-                serde_json::to_writer(&mut *output_stream, &output).unwrap();
-                output_stream.write_all(b"\n").unwrap();
+            Payload::Req(req) => {
+                match req {
+                    Request::Echo { echo } => {
+                        let output = Message {
+                            src: input.dest,
+                            dest: input.src,
+                            body: Body {
+                                msg_id: Some(self.id),
+                                in_reply_to: input.body.msg_id,
+                                payload: Payload::Resp(Response::EchoOk { echo }),
+                            }
+                        };
+                        serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                        output_stream.write_all(b"\n").unwrap();
+                    },
+                    Request::Init { .. } => {
+                        let output = Message {
+                            src: input.dest,
+                            dest: input.src,
+                            body: Body {
+                                msg_id: Some(self.id),
+                                in_reply_to: input.body.msg_id,
+                                payload: Payload::Resp(Response::InitOk { msg_id: input.body.msg_id.unwrap() }),
+                            }
+                        };
+                        serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                        output_stream.write_all(b"\n").unwrap();
+                    },
+                }
             },
-            Payload::EchoOk { .. } => (),
-            Payload::Init { .. } => {
-                let output = Message {
-                    src: input.dest,
-                    dest: input.src,
-                    body: Body {
-                        msg_id: Some(self.id),
-                        in_reply_to: input.body.msg_id,
-                        payload: Payload::InitOk { msg_id: input.body.msg_id.unwrap() },
-                    }
-                };
-                serde_json::to_writer(&mut *output_stream, &output).unwrap();
-                output_stream.write_all(b"\n").unwrap();
-            },
-            Payload::InitOk { .. } => unreachable!(),
+            Payload::Resp(_) => (),
         }
         self.id += 1;
     }
