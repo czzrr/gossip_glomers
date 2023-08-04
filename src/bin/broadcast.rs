@@ -14,11 +14,17 @@ use std::io::Write;
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum Payload {
-    Broadcast { message: usize },
+    Broadcast {
+        message: usize,
+    },
     BroadcastOk,
     Read,
-    ReadOk { messages: HashSet<usize> },
-    Topology { topology: HashMap<String, Vec<String>> },
+    ReadOk {
+        messages: HashSet<usize>,
+    },
+    Topology {
+        topology: HashMap<String, Vec<String>>,
+    },
     TopologyOk,
 }
 
@@ -76,12 +82,14 @@ impl NodeHandler<Payload> for Broadcast {
                     body: Body {
                         msg_id: Some(node.msg_id),
                         in_reply_to: input.body.msg_id,
-                        payload: Payload::ReadOk { messages: self.messages_received.clone() },
+                        payload: Payload::ReadOk {
+                            messages: self.messages_received.clone(),
+                        },
                     },
                 };
                 serde_json::to_writer(&mut *output_stream, &output).unwrap();
                 output_stream.write_all(b"\n").unwrap();
-            },
+            }
             Payload::ReadOk { .. } => panic!(),
             Payload::Topology { topology: _ } => {
                 let output = Message {
@@ -95,7 +103,7 @@ impl NodeHandler<Payload> for Broadcast {
                 };
                 serde_json::to_writer(&mut *output_stream, &output).unwrap();
                 output_stream.write_all(b"\n").unwrap();
-            },
+            }
             Payload::TopologyOk => panic!(),
         }
         node.msg_id += 1;
@@ -103,5 +111,7 @@ impl NodeHandler<Payload> for Broadcast {
 }
 
 fn main() {
-    main_loop(Broadcast { messages_received: HashSet::new() });
+    main_loop(Broadcast {
+        messages_received: HashSet::new(),
+    });
 }
