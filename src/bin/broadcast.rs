@@ -30,21 +30,45 @@ impl NodeHandler<Payload> for Broadcast {
     fn handle(&mut self, node: &mut Node, input: Message<Payload>, output_stream: &mut StdoutLock) {
         match input.body.payload {
             Payload::Broadcast { message } => {
+                let broadcast = !self.messages_received.contains(&message);
                 self.messages_received.insert(message);
 
-                let output = Message {
-                    src: input.dest,
-                    dest: input.src,
-                    body: Body {
-                        msg_id: Some(node.msg_id),
-                        in_reply_to: input.body.msg_id,
-                        payload: Payload::BroadcastOk,
-                    },
-                };
-                serde_json::to_writer(&mut *output_stream, &output).unwrap();
-                output_stream.write_all(b"\n").unwrap();
+                if input.src.starts_with("c") {
+                    let output = Message {
+                        src: input.dest.clone(),
+                        dest: input.src,
+                        body: Body {
+                            msg_id: Some(node.msg_id),
+                            in_reply_to: input.body.msg_id,
+                            payload: Payload::BroadcastOk,
+                        },
+                    };
+                    serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                    output_stream.write_all(b"\n").unwrap();
+                }
+
+                if broadcast {
+                    for node_id in &node.node_ids {
+                        node.msg_id += 1;
+
+                        if node_id == &format!("n{}", node.node_id) {
+                            continue;
+                        }
+                        let output = Message {
+                            src: input.dest.clone(),
+                            dest: node_id.clone(),
+                            body: Body {
+                                msg_id: Some(node.msg_id),
+                                in_reply_to: input.body.msg_id,
+                                payload: Payload::Broadcast { message },
+                            },
+                        };
+                        serde_json::to_writer(&mut *output_stream, &output).unwrap();
+                        output_stream.write_all(b"\n").unwrap();
+                    }
+                }
             }
-            Payload::BroadcastOk { .. } => panic!(),
+            Payload::BroadcastOk => panic!(),
             Payload::Read => {
                 let output = Message {
                     src: input.dest,
