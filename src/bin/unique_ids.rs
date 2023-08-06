@@ -1,4 +1,5 @@
 use gossip_glomers::main_loop;
+use gossip_glomers::Event;
 use gossip_glomers::Init;
 use gossip_glomers::Message;
 use gossip_glomers::Node;
@@ -19,8 +20,13 @@ struct UniqueIds {
     msg_id: usize,
 }
 
-impl Node<UniqueIdsPayload> for UniqueIds {
-    fn handle(&mut self, input: Message<UniqueIdsPayload>, output_stream: &mut StdoutLock) {
+impl Node<UniqueIdsPayload, ()> for UniqueIds {
+    fn handle(&mut self, input: Event<UniqueIdsPayload, ()>, output_stream: &mut StdoutLock) {
+        let input = match input {
+            Event::Message(msg) => msg,
+            _ => panic!("UniqueIds node only takes messages"),
+        };
+
         match input.body.payload {
             UniqueIdsPayload::Generate => {
                 let reply = input.into_reply(
@@ -35,7 +41,7 @@ impl Node<UniqueIdsPayload> for UniqueIds {
         }
     }
 
-    fn from_init(init: Init) -> Self {
+    fn from_init(init: Init, _tx: std::sync::mpsc::Sender<Event<UniqueIdsPayload, ()>>) -> Self {
         UniqueIds {
             id: init.id,
             msg_id: 1,
@@ -44,5 +50,5 @@ impl Node<UniqueIdsPayload> for UniqueIds {
 }
 
 fn main() {
-    main_loop::<UniqueIds, _>();
+    main_loop::<UniqueIds, _, _>();
 }

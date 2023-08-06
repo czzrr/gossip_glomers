@@ -48,6 +48,11 @@ pub struct Body<P> {
     pub payload: P,
 }
 
+pub enum Event<P, IP> {
+    Message(Message<P>),
+    InjectedPayload(IP),
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -63,65 +68,67 @@ enum InitPayload {
 
 pub struct Init {
     pub id: String,
-    pub msg_id: usize,
     pub node_ids: Vec<String>,
 }
 
 impl Init {
     pub fn new(input_stream: &mut StdinLock, output_stream: &mut StdoutLock) -> Init {
-        let inputs =
+        let mut inputs =
             serde_json::Deserializer::from_reader(input_stream).into_iter::<Message<InitPayload>>();
 
-        for input in inputs {
-            let input = input.unwrap();
-            if let InitPayload::Init { node_id, node_ids } = input.body.payload {
-                let output = Message {
-                    src: input.dest,
-                    dest: input.src,
-                    body: Body {
-                        msg_id: Some(1),
-                        in_reply_to: input.body.msg_id,
-                        payload: InitPayload::InitOk {
-                            msg_id: input.body.msg_id.unwrap(),
-                        },
-                    },
-                };
-
-                serde_json::to_writer(&mut *output_stream, &output).unwrap();
-                output_stream.write_all(b"\n").unwrap();
+        let input = inputs.next().unwrap().unwrap();
+        match input.body.payload.clone() {
+            InitPayload::Init { node_id, node_ids } => {
+                let msg_id = input.body.msg_id.unwrap();
+                let reply = input.into_reply(InitPayload::InitOk { msg_id }, Some(&mut 0));
+                reply.send(output_stream);
 
                 return Init {
                     id: node_id,
-                    msg_id: 2,
                     node_ids,
                 };
             }
+            _ => panic!(),
         }
-        panic!()
     }
 }
 
-pub trait Node<P> {
-    fn from_init(init: Init) -> Self;
-    fn handle(&mut self, input: Message<P>, output_stream: &mut StdoutLock);
+pub trait Node<P, IP> {
+    fn from_init(init: Init, tx: std::sync::mpsc::Sender<Event<P, IP>>) -> Self;
+    fn handle(&mut self, event: Event<P, IP>, output_stream: &mut StdoutLock);
 }
 
-pub fn main_loop<N, P>()
+pub fn main_loop<N, P, IP>()
 where
-    N: Node<P>,
+    N: Node<P, IP>,
     P: DeserializeOwned,
+    P: Send + 'static,
+    IP: Send + 'static,
 {
     let mut stdin = stdin().lock();
     let mut stdout = stdout().lock();
 
     let init = Init::new(&mut stdin, &mut stdout);
-    let mut node = N::from_init(init);
-    let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
 
-    //let (rx, tx) = std::sync::mpsc::channel::<Event<P, IP>>();
+    let (tx, rx) = std::sync::mpsc::channel::<Event<P, IP>>();
 
-    for input in inputs {
-        let input = input.unwrap();
-        node.handle(input, &mut stdout);
+    let stdin_tx = tx.clone();
+    drop(stdin);
+    let join_handle = std::thread::spawn(move || {
+        let stdin = std::io::stdin().lock();
+        let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
+        for input in inputs {
+            let input = input.expect("deserialized message");
+            if let Err(_) = stdin_tx.send(Event::Message(input)) {
+                return Ok::<_, ()>(());
+            }
+        }
+        Ok(())
+    });
+
+    let mut node = N::from_init(init, tx);
+
+    while let Ok(event) = rx.recv() {
+        node.handle(event, &mut stdout);
     }
 }
