@@ -19,7 +19,11 @@ struct Echo {
 }
 
 impl Node<EchoPayload, ()> for Echo {
-    fn handle(&mut self, input: Event<EchoPayload, ()>, output_stream: &mut StdoutLock) {
+    fn handle(
+        &mut self,
+        input: Event<EchoPayload, ()>,
+        output_stream: &mut StdoutLock,
+    ) -> anyhow::Result<()> {
         let input = match input {
             Event::Message(msg) => msg,
             _ => panic!("Echo node only takes messages"),
@@ -32,13 +36,18 @@ impl Node<EchoPayload, ()> for Echo {
             }
             EchoPayload::EchoOk { .. } => panic!(),
         }
+
+        Ok(())
     }
 
-    fn from_init(_init: Init, _tx: std::sync::mpsc::Sender<Event<EchoPayload, ()>>) -> Self {
-        Echo { msg_id: 1 }
+    fn from_init(
+        _init: Init,
+        _tx: std::sync::mpsc::Sender<Event<EchoPayload, ()>>,
+    ) -> anyhow::Result<Self> {
+        Ok(Echo { msg_id: 1 })
     }
 }
 
-fn main() {
-    main_loop::<Echo, _, _>();
+fn main() -> anyhow::Result<()> {
+    main_loop::<Echo, _, _>()
 }

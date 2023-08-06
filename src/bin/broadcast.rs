@@ -47,7 +47,7 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
         &mut self,
         event: Event<BroadcastPayload, InjectedBroadcastPayload>,
         output_stream: &mut StdoutLock,
-    ) {
+    ) -> anyhow::Result<()> {
         match event {
             Event::Message(input) => match input.body.payload.clone() {
                 BroadcastPayload::Broadcast { message } => {
@@ -103,27 +103,30 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                 }
             },
         }
+
+        Ok(())
     }
 
     fn from_init(
         init: Init,
         tx: std::sync::mpsc::Sender<Event<BroadcastPayload, InjectedBroadcastPayload>>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
-            tx.send(Event::InjectedPayload(InjectedBroadcastPayload::Gossip))
-                .unwrap();
+            if let Err(_) = tx.send(Event::InjectedPayload(InjectedBroadcastPayload::Gossip)) {
+                break;
+            }
         });
 
-        Broadcast {
+        Ok(Broadcast {
             id: init.id,
             msg_id: 1,
             messages: HashSet::new(),
             topology: HashMap::new(),
-        }
+        })
     }
 }
 
-fn main() {
-    main_loop::<Broadcast, _, _>();
+fn main() -> anyhow::Result<()> {
+    main_loop::<Broadcast, _, _>()
 }

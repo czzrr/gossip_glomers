@@ -1,3 +1,4 @@
+use anyhow::Context;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -34,9 +35,12 @@ where
         }
     }
 
-    pub fn send(self, mut output_stream: &mut impl Write) {
-        serde_json::to_writer(&mut output_stream, &self).unwrap();
-        output_stream.write_all(b"\n").unwrap();
+    pub fn send(self, mut output_stream: &mut impl Write) -> anyhow::Result<()> {
+        serde_json::to_writer(&mut output_stream, &self).context("serialize reply")?;
+        output_stream
+            .write_all(b"\n")
+            .context("write trailing newline")?;
+        Ok(())
     }
 }
 
@@ -72,33 +76,43 @@ pub struct Init {
 }
 
 impl Init {
-    pub fn new(input_stream: &mut StdinLock, output_stream: &mut StdoutLock) -> Init {
+    pub fn new(
+        input_stream: &mut StdinLock,
+        output_stream: &mut StdoutLock,
+    ) -> anyhow::Result<Init> {
         let mut inputs =
             serde_json::Deserializer::from_reader(input_stream).into_iter::<Message<InitPayload>>();
 
-        let input = inputs.next().unwrap().unwrap();
+        let input = inputs
+            .next()
+            .expect("init message")
+            .context("failed to read init message from stdin")?;
         match input.body.payload.clone() {
             InitPayload::Init { node_id, node_ids } => {
-                let msg_id = input.body.msg_id.unwrap();
+                let msg_id = input.body.msg_id.expect("message id in init message");
                 let reply = input.into_reply(InitPayload::InitOk { msg_id }, Some(&mut 0));
-                reply.send(output_stream);
+                reply.send(output_stream)?;
 
-                return Init {
+                return Ok(Init {
                     id: node_id,
                     node_ids,
-                };
+                });
             }
             _ => panic!(),
         }
     }
 }
 
-pub trait Node<P, IP> {
-    fn from_init(init: Init, tx: std::sync::mpsc::Sender<Event<P, IP>>) -> Self;
-    fn handle(&mut self, event: Event<P, IP>, output_stream: &mut StdoutLock);
+pub trait Node<P, IP>
+where
+    Self: Sized,
+{
+    fn from_init(init: Init, tx: std::sync::mpsc::Sender<Event<P, IP>>) -> anyhow::Result<Self>;
+    fn handle(&mut self, event: Event<P, IP>, output_stream: &mut StdoutLock)
+        -> anyhow::Result<()>;
 }
 
-pub fn main_loop<N, P, IP>()
+pub fn main_loop<N, P, IP>() -> anyhow::Result<()>
 where
     N: Node<P, IP>,
     P: DeserializeOwned,
@@ -108,7 +122,7 @@ where
     let mut stdin = stdin().lock();
     let mut stdout = stdout().lock();
 
-    let init = Init::new(&mut stdin, &mut stdout);
+    let init = Init::new(&mut stdin, &mut stdout)?;
 
     let (tx, rx) = std::sync::mpsc::channel::<Event<P, IP>>();
 
@@ -120,15 +134,22 @@ where
         for input in inputs {
             let input = input.expect("deserialized message");
             if let Err(_) = stdin_tx.send(Event::Message(input)) {
-                return Ok::<_, ()>(());
+                return anyhow::Ok(());
             }
         }
         Ok(())
     });
 
-    let mut node = N::from_init(init, tx);
+    let mut node = N::from_init(init, tx)?;
 
-    while let Ok(event) = rx.recv() {
-        node.handle(event, &mut stdout);
+    for event in rx {
+        node.handle(event, &mut stdout)
+            .context("failed to handle event")?;
     }
+    join_handle
+        .join()
+        .expect("thread to shut down gracefully")
+        .context("hi")?;
+
+    Ok(())
 }

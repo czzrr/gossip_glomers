@@ -1,7 +1,6 @@
 use gossip_glomers::main_loop;
 use gossip_glomers::Event;
 use gossip_glomers::Init;
-use gossip_glomers::Message;
 use gossip_glomers::Node;
 use serde::Deserialize;
 use serde::Serialize;
@@ -21,7 +20,11 @@ struct UniqueIds {
 }
 
 impl Node<UniqueIdsPayload, ()> for UniqueIds {
-    fn handle(&mut self, input: Event<UniqueIdsPayload, ()>, output_stream: &mut StdoutLock) {
+    fn handle(
+        &mut self,
+        input: Event<UniqueIdsPayload, ()>,
+        output_stream: &mut StdoutLock,
+    ) -> anyhow::Result<()> {
         let input = match input {
             Event::Message(msg) => msg,
             _ => panic!("UniqueIds node only takes messages"),
@@ -39,16 +42,21 @@ impl Node<UniqueIdsPayload, ()> for UniqueIds {
             }
             UniqueIdsPayload::GenerateOk { .. } => panic!(),
         }
+
+        Ok(())
     }
 
-    fn from_init(init: Init, _tx: std::sync::mpsc::Sender<Event<UniqueIdsPayload, ()>>) -> Self {
-        UniqueIds {
+    fn from_init(
+        init: Init,
+        _tx: std::sync::mpsc::Sender<Event<UniqueIdsPayload, ()>>,
+    ) -> anyhow::Result<Self> {
+        Ok(UniqueIds {
             id: init.id,
             msg_id: 1,
-        }
+        })
     }
 }
 
-fn main() {
-    main_loop::<UniqueIds, _, _>();
+fn main() -> anyhow::Result<()> {
+    main_loop::<UniqueIds, _, _>()
 }
