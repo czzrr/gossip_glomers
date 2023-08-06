@@ -49,27 +49,16 @@ pub struct Body<P> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(untagged)]
-enum Payload {
-    Req(Request),
-    Resp(Response),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-enum Request {
+enum InitPayload {
     Init {
         node_id: String,
         node_ids: Vec<String>,
     },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-enum Response {
-    InitOk { msg_id: usize },
+    InitOk {
+        msg_id: usize,
+    },
 }
 
 pub struct Init {
@@ -81,20 +70,20 @@ pub struct Init {
 impl Init {
     pub fn new(input_stream: &mut StdinLock, output_stream: &mut StdoutLock) -> Init {
         let inputs =
-            serde_json::Deserializer::from_reader(input_stream).into_iter::<Message<Payload>>();
+            serde_json::Deserializer::from_reader(input_stream).into_iter::<Message<InitPayload>>();
 
         for input in inputs {
             let input = input.unwrap();
-            if let Payload::Req(Request::Init { node_id, node_ids }) = input.body.payload {
+            if let InitPayload::Init { node_id, node_ids } = input.body.payload {
                 let output = Message {
                     src: input.dest,
                     dest: input.src,
                     body: Body {
                         msg_id: Some(1),
                         in_reply_to: input.body.msg_id,
-                        payload: Payload::Resp(Response::InitOk {
+                        payload: InitPayload::InitOk {
                             msg_id: input.body.msg_id.unwrap(),
-                        }),
+                        },
                     },
                 };
 
@@ -128,6 +117,9 @@ where
     let init = Init::new(&mut stdin, &mut stdout);
     let mut node = N::from_init(init);
     let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
+
+    //let (rx, tx) = std::sync::mpsc::channel::<Event<P, IP>>();
+
     for input in inputs {
         let input = input.unwrap();
         node.handle(input, &mut stdout);
