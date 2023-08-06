@@ -14,6 +14,32 @@ pub struct Message<P> {
     pub body: Body<P>,
 }
 
+impl<P> Message<P>
+where
+    P: Serialize,
+{
+    pub fn into_reply(self, payload: P, msg_id: Option<&mut usize>) -> Self {
+        Message {
+            src: self.dest,
+            dest: self.src,
+            body: Body {
+                msg_id: msg_id.map(|mid| {
+                    let old_mid = *mid;
+                    *mid += 1;
+                    old_mid
+                }),
+                in_reply_to: self.body.msg_id,
+                payload,
+            },
+        }
+    }
+
+    pub fn send(self, mut output_stream: impl Write) {
+        serde_json::to_writer(&mut output_stream, &self).unwrap();
+        output_stream.write_all(b"\n").unwrap();
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Body<P> {
     pub msg_id: Option<usize>,
