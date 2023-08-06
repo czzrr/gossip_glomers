@@ -34,7 +34,7 @@ where
         }
     }
 
-    pub fn send(self, mut output_stream: impl Write) {
+    pub fn send(self, mut output_stream: &mut impl Write) {
         serde_json::to_writer(&mut output_stream, &self).unwrap();
         output_stream.write_all(b"\n").unwrap();
     }
