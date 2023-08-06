@@ -46,14 +46,14 @@ enum Response {
     InitOk { msg_id: usize },
 }
 
-pub struct Node {
-    pub node_id: usize,
+pub struct Init {
+    pub id: String,
     pub msg_id: usize,
     pub node_ids: Vec<String>,
 }
 
-impl Node {
-    pub fn new(input_stream: &mut StdinLock, output_stream: &mut StdoutLock) -> Node {
+impl Init {
+    pub fn new(input_stream: &mut StdinLock, output_stream: &mut StdoutLock) -> Init {
         let inputs =
             serde_json::Deserializer::from_reader(input_stream).into_iter::<Message<Payload>>();
 
@@ -75,9 +75,8 @@ impl Node {
                 serde_json::to_writer(&mut *output_stream, &output).unwrap();
                 output_stream.write_all(b"\n").unwrap();
 
-                let node_id = node_id[1..].parse().unwrap();
-                return Node {
-                    node_id,
+                return Init {
+                    id: node_id,
                     msg_id: 2,
                     node_ids,
                 };
@@ -87,23 +86,24 @@ impl Node {
     }
 }
 
-pub trait NodeHandler<P> {
-    fn handle(&mut self, node: &mut Node, input: Message<P>, output_stream: &mut StdoutLock);
+pub trait Node<P> {
+    fn from_init(init: Init) -> Self;
+    fn handle(&mut self, input: Message<P>, output_stream: &mut StdoutLock);
 }
 
-pub fn main_loop<N, P>(mut node_handler: N)
+pub fn main_loop<N, P>()
 where
-    N: NodeHandler<P>,
+    N: Node<P>,
     P: DeserializeOwned,
 {
     let mut stdin = stdin().lock();
     let mut stdout = stdout().lock();
 
-    let mut node = Node::new(&mut stdin, &mut stdout);
-
+    let init = Init::new(&mut stdin, &mut stdout);
+    let mut node = N::from_init(init);
     let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
     for input in inputs {
         let input = input.unwrap();
-        node_handler.handle(&mut node, input, &mut stdout);
+        node.handle(input, &mut stdout);
     }
 }
