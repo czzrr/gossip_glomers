@@ -40,6 +40,7 @@ struct Broadcast {
     msg_id: usize,
     messages: HashSet<usize>,
     topology: HashMap<String, Vec<String>>,
+    known: HashMap<String, HashSet<usize>>,
 }
 
 impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
@@ -60,7 +61,11 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                 }
                 BroadcastPayload::BroadcastOk => panic!(),
                 BroadcastPayload::Gossip { messages } => {
-                    self.messages.extend(messages);
+                    self.messages.extend(messages.clone());
+                    let node_id = &input.src;
+                    self.known
+                        .get_mut(node_id)
+                        .map(|msgs| msgs.extend(messages));
                 }
                 BroadcastPayload::Read => {
                     let reply = input.into_reply(
@@ -73,7 +78,10 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                 }
                 BroadcastPayload::ReadOk { .. } => panic!(),
                 BroadcastPayload::Topology { topology } => {
+                    eprintln!("topology: {:?}", topology);
                     self.topology = topology;
+                    self.known = self.topology.keys().map(|node_id| (node_id.clone(), HashSet::new())).collect();
+                    eprintln!("known: {:?}", self.known);
                     let reply =
                         input.into_reply(BroadcastPayload::TopologyOk, Some(&mut self.msg_id));
                     reply.send(output_stream)?;
@@ -94,7 +102,17 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                                 msg_id: None,
                                 in_reply_to: None,
                                 payload: BroadcastPayload::Gossip {
-                                    messages: self.messages.clone(),
+                                    messages: self
+                                        .messages
+                                        .clone()
+                                        .into_iter()
+                                        .filter(|m| {
+                                            !self.known
+                                                .get(node_id)
+                                                .expect(&format!("neighbor to node {node_id}"))
+                                                .contains(m)
+                                        })
+                                        .collect(),
                                 },
                             },
                         };
@@ -123,6 +141,7 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
             msg_id: 1,
             messages: HashSet::new(),
             topology: HashMap::new(),
+            known: HashMap::new(),
         })
     }
 }
