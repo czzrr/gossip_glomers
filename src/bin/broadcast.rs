@@ -56,7 +56,7 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                     let reply = input
                         .clone()
                         .into_reply(BroadcastPayload::BroadcastOk, Some(&mut self.msg_id));
-                    reply.send(output_stream);
+                    reply.send(output_stream)?;
                 }
                 BroadcastPayload::BroadcastOk => panic!(),
                 BroadcastPayload::Gossip { messages } => {
@@ -69,14 +69,14 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                         },
                         Some(&mut self.msg_id),
                     );
-                    reply.send(output_stream);
+                    reply.send(output_stream)?;
                 }
                 BroadcastPayload::ReadOk { .. } => panic!(),
                 BroadcastPayload::Topology { topology } => {
                     self.topology = topology;
                     let reply =
                         input.into_reply(BroadcastPayload::TopologyOk, Some(&mut self.msg_id));
-                    reply.send(output_stream);
+                    reply.send(output_stream)?;
                 }
                 BroadcastPayload::TopologyOk => panic!(),
             },
@@ -98,7 +98,7 @@ impl Node<BroadcastPayload, InjectedBroadcastPayload> for Broadcast {
                                 },
                             },
                         };
-                        msg.send(output_stream);
+                        msg.send(output_stream)?;
                     }
                 }
             },

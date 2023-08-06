@@ -32,7 +32,7 @@ impl Node<EchoPayload, ()> for Echo {
         match input.body.payload.clone() {
             EchoPayload::Echo { echo } => {
                 let reply = input.into_reply(EchoPayload::EchoOk { echo }, Some(&mut self.msg_id));
-                reply.send(output_stream);
+                reply.send(output_stream)?;
             }
             EchoPayload::EchoOk { .. } => panic!(),
         }

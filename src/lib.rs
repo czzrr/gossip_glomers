@@ -36,7 +36,7 @@ where
     }
 
     pub fn send(self, mut output_stream: &mut impl Write) -> anyhow::Result<()> {
-        serde_json::to_writer(&mut output_stream, &self).context("serialize reply")?;
+        serde_json::to_writer(&mut output_stream, &self).context("serialize message")?;
         output_stream
             .write_all(b"\n")
             .context("write trailing newline")?;

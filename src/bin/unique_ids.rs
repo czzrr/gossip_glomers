@@ -38,7 +38,7 @@ impl Node<UniqueIdsPayload, ()> for UniqueIds {
                     },
                     Some(&mut self.msg_id),
                 );
-                reply.send(output_stream);
+                reply.send(output_stream)?;
             }
             UniqueIdsPayload::GenerateOk { .. } => panic!(),
         }
